@@ -396,6 +396,17 @@ set_skipped ()
   return 0
 }
 
+# Check if there is a symlink in a directory-path (e.g. b is a symlink, within a/b/c)
+is_symlink_path() {
+  local d="."
+  local IFS=/;
+  for p in $1; do
+    d="$d/$p"
+    [ -h "$d" ] && return 0
+  done
+  return 1
+}
+
 get_abs_filename() {
   if [ -d "$(dirname "$1")" ]; then
     echo "$(cd "$(dirname "$1")/$(dirname "$(readlink "$1")")" && pwd)/$(basename "$1")"
@@ -537,31 +548,33 @@ apply_path ()
 {
   local src="$1"; local dest="$2"; local target="$3"; local real="$4"; local line="$5"
 
-  # Make symlinks relative
+  # Make symlinks relative, if applicable
   if [ $COPY -eq 0 ]; then
-    local realpath=$($readlink_missing "${dest%/*}"); local commonpath=""
-    if [ "${dest%/*}" == "${realpath}" ]; then
-      # Use modman root as common path if destination is not itself a symlinked path
-      commonpath="${mmroot%/}"
-    else
-      # Search for longest common path as symlink target
-      for ((i=0; i<${#dest}; i++)); do
-        if [[ "${dest:i:1}" != "${realpath:i:1}" ]]; then
-          commonpath="${dest:0:i}"
-          commonpath="${commonpath%/*}"
-          break
-        fi
-      done
-    fi
-    # Replace destination (less common path) with ../*
-    if [ "$commonpath" != "" ]; then
-      local reldest="${dest#$commonpath/}"
-      if [ "$reldest" != "${reldest%/*}" ]; then
-        reldest=$(IFS=/; for d in ${reldest%/*}; do echo -n '../'; done)
+    if [ "$target" != "${target%/*}" ] && ! is_symlink_path "${target%/*}"; then
+      local realpath=$($readlink_missing "${dest%/*}"); local commonpath=""
+      if [ "${dest%/*}" == "${realpath}" ]; then
+        # Use modman root as common path if destination is not itself a symlinked path
+        commonpath="${mmroot%/}"
       else
-        reldest=""
+        # Search for longest common path as symlink target
+        for ((i=0; i<${#dest}; i++)); do
+          if [[ "${dest:i:1}" != "${realpath:i:1}" ]]; then
+            commonpath="${dest:0:i}"
+            commonpath="${commonpath%/*}"
+            break
+          fi
+        done
       fi
-      src="${reldest}${src#$commonpath/}"
+      # Replace destination (less common path) with ../*
+      if [ "$commonpath" != "" ]; then
+        local reldest="${dest#$commonpath/}"
+        if [ "$reldest" != "${reldest%/*}" ]; then
+          reldest=$(IFS=/; for d in ${reldest%/*}; do echo -n '../'; done)
+        else
+          reldest=""
+        fi
+        src="${reldest}${src#$commonpath/}"
+      fi
     fi
   fi
 
